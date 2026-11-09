@@ -1,0 +1,80 @@
+# Laboratoire de la formation Jenkins FPGA.
+#   TP 0 : docker compose up -d                       (jenkins, gitea, mailpit, hdl-sim)
+#   TP 1 : secret de hdl-sim dans .env, puis docker compose up -d hdl-sim
+#   TP 2 : image Jenkins personnalisée, Apache   ->  docker compose --profile proxy up -d
+#   TP 3 : agent Quartus (image construite)      ->  docker compose --profile quartus up -d
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk21
+    # TP 2 : remplacer la ligne « image » par : build: ./images/jenkins
+    container_name: jenkins
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    environment:
+      - JAVA_OPTS=-Xms512m -Xmx1g -Djava.awt.headless=true
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    networks: [ci]
+
+  gitea:
+    image: gitea/gitea:1.22
+    container_name: gitea
+    restart: unless-stopped
+    environment:
+      - GITEA__server__ROOT_URL=http://gitea:3000/
+      - GITEA__webhook__ALLOWED_HOST_LIST=*
+    ports: ["3000:3000"]
+    volumes: [gitea_data:/data]
+    networks: [ci]
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: mailpit
+    restart: unless-stopped
+    ports: ["8025:8025", "1025:1025"]
+    networks: [ci]
+
+  hdl-sim:
+    build: ./images/hdl-sim
+    image: formation/hdl-sim
+    container_name: hdl-sim
+    restart: unless-stopped
+    environment:
+      - JENKINS_URL=http://jenkins:8080
+      - JENKINS_AGENT_NAME=hdl-sim
+      - JENKINS_SECRET=${HDL_SIM_SECRET:-}
+    volumes:
+      - ./workspace:/workspace
+    networks: [ci]
+
+  agent-quartus:
+    image: formation/quartus
+    container_name: agent-quartus
+    restart: unless-stopped
+    profiles: ["quartus"]
+    environment:
+      - JENKINS_URL=http://jenkins:8080
+      - JENKINS_AGENT_NAME=quartus
+      - JENKINS_SECRET=${QUARTUS_SECRET:-}
+      - NB_THREADS=4
+    mem_limit: 8g
+    networks: [ci]
+
+  apache:
+    image: httpd:2.4
+    container_name: apache
+    restart: unless-stopped
+    profiles: ["proxy"]
+    ports: ["8082:80"]
+    volumes:
+      - ./apache/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+      - ./apache/jenkins.conf:/usr/local/apache2/conf/extra/jenkins.conf:ro
+    depends_on: [jenkins]
+    networks: [ci]
+
+volumes:
+  jenkins_home:
+  gitea_data:
+
+networks:
+  ci:

@@ -1,0 +1,31 @@
+TP 8 – Code piégé
+=================
+
+1. Copier clignoteur.v dans rtl/.
+
+2. Dans rtl/top.vhd, déclarer le composant (après le composant uart_tx) :
+
+     component clignoteur is
+       port (
+         clk  : in  std_logic;
+         rst  : in  std_logic;
+         mode : in  std_logic_vector(1 downto 0);
+         led  : out std_logic
+       );
+     end component;
+     signal led_clig : std_logic;
+
+   puis l'instancier (après u_tx) et l'utiliser sur la LED 1 :
+
+     u_clig : clignoteur
+       port map (clk => clk, rst => rst, mode => "01", led => led_clig);
+
+     led(1) <= led_clig;     -- remplace : led(1) <= not empty;
+
+3. Dans scripts/quartus_build.tcl, ajouter :
+
+     set_global_assignment -name VERILOG_FILE rtl/clignoteur.v
+
+4. Pousser : le lint Verilator, VSG et la synthèse Quartus doivent signaler
+   le latch, l'affectation bloquante, le signal inutilisé, les largeurs
+   différentes, le TODO et le FIXME.

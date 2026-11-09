@@ -1,0 +1,12 @@
+# Documentation HDL : entités VHDL et commentaires --!
+PROJECT_NAME           = "uart-fifo"
+OUTPUT_DIRECTORY       = build/doc
+INPUT                  = rtl
+FILE_PATTERNS          = *.vhd
+OPTIMIZE_OUTPUT_VHDL   = YES
+EXTRACT_ALL            = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HAVE_DOT               = NO
+QUIET                  = YES
+OUTPUT_LANGUAGE        = French

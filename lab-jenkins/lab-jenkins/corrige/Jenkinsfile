@@ -1,0 +1,116 @@
+// Corrigé du TP 9 – chaîne d'intégration continue complète, sans Questa.
+// À copier à la racine du dépôt uart-fifo pour la démonstration finale.
+pipeline {
+    agent none
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+        timestamps()
+        timeout(time: 2, unit: 'HOURS')
+        disableConcurrentBuilds()
+    }
+    triggers { pollSCM('') }               // déclenché par le webhook Gitea
+
+    stages {
+        stage('Lint') {
+            agent { label 'hdl-sim' }
+            steps {
+                sh 'make lint'
+                sh 'python3 scripts/rapports.py warnings verilator && python3 scripts/rapports.py warnings vsg'
+            }
+            post {
+                always {
+                    recordIssues enabledForFailure: true,
+                        tools: [issues(pattern: 'build/warnings_verilator.json', id: 'verilator', name: 'Lint Verilator'),
+                                issues(pattern: 'build/warnings_vsg.json', id: 'vsg', name: 'Style VHDL (VSG)')],
+                        qualityGates: [[threshold: 1, type: 'NEW', criticality: 'UNSTABLE']]
+                    recordIssues tool: taskScanner(includePattern: 'rtl/**/*.vhd, rtl/**/*.v, tb/**/*.py, scripts/**/*.tcl',
+                                                   highTags: 'FIXME', normalTags: 'TODO', ignoreCase: true)
+                }
+            }
+        }
+
+        stage('Tests unitaires et couverture') {
+            agent { label 'hdl-sim' }
+            steps {
+                sh 'make -k coverage test-verilog doc || true'
+                recordCoverage(tools: [[parser: 'COBERTURA', pattern: 'build/coverage.xml']],
+                               qualityGates: [[threshold: 80.0, metric: 'LINE', baseline: 'PROJECT', criticality: 'UNSTABLE']])
+                publishHTML(target: [reportDir: 'build/doc/html', reportFiles: 'index.html',
+                                     reportName: 'Documentation HDL', keepAll: true, allowMissing: true,
+                                     alwaysLinkToLastBuild: true])
+            }
+            post { always { junit 'build/vunit.xml, tb/cocotb/results.xml' } }
+        }
+
+        stage('Intégration (top complet)') {
+            agent { label 'hdl-sim' }
+            steps { sh 'make integration || true' }
+            post { always { junit 'build/integration.xml' } }
+        }
+
+        stage('Compilation Quartus') {
+            agent { label 'quartus' }
+            steps {
+                lock('licence-quartus') { sh 'make quartus' }
+                script {
+                    def statut = sh(script: 'python3 scripts/rapports.py quartus', returnStatus: true)
+                    plot csvFileName: 'plot-timing-quartus.csv', group: 'DE10-Lite',
+                         title: 'Marge de timing setup (ns)', style: 'line',
+                         csvSeries: [[file: 'build/timing_quartus.csv']]
+                    plot csvFileName: 'plot-ressources-quartus.csv', group: 'DE10-Lite',
+                         title: 'Ressources (éléments logiques, registres)', style: 'line',
+                         csvSeries: [[file: 'build/ressources_quartus.csv']]
+                    if (statut != 0) { error 'Timing non respecté sur DE10-Lite' }
+                }
+                sh 'cp output_files/uart_fifo.sof build/uart_fifo_de10lite.sof'
+                archiveArtifacts artifacts: 'build/*.sof', fingerprint: true
+                stash name: 'ressources', includes: 'build/ressources_quartus.csv'
+            }
+            post {
+                always {
+                    sh 'python3 scripts/rapports.py warnings quartus || true'
+                    recordIssues tool: issues(pattern: 'build/warnings_quartus.json', id: 'quartus', name: 'Synthèse Quartus'),
+                                 qualityGates: [[threshold: 1, type: 'NEW_HIGH', criticality: 'UNSTABLE']]
+                    archiveArtifacts artifacts: 'output_files/*.summary, build/*.rpt', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Acceptance (netlist post-synthèse)') {
+            when { branch 'main' }        // job Pipeline simple : expression { env.GIT_BRANCH == 'origin/main' }
+            agent { label 'hdl-sim' }
+            steps {
+                sh 'make acceptance || true'
+                unstash 'ressources'
+                script {
+                    def le = readFile('build/ressources_quartus.csv').readLines()[1].split(',')[0] as int
+                    if (le > 5000) { error "Critère de livraison non tenu : ${le} éléments logiques (maximum 5 000)" }
+                }
+            }
+            post {
+                always {
+                    junit 'build/acceptance.xml'
+                    archiveArtifacts artifacts: 'build/top_netlist.v, build/yosys.log', allowEmptyArchive: true
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            emailext to: 'equipe@formation.local', recipientProviders: [culprits()],
+                     subject: "ÉCHEC ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                     body: '${BUILD_URL}\n\n${BUILD_LOG_REGEX, regex="(?i)slack|critical warning|error", showTruncatedLines=false}'
+        }
+        unstable {
+            emailext to: 'equipe@formation.local',
+                     subject: "INSTABLE ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                     body: 'Tests en échec, couverture ou qualité sous le seuil : ${BUILD_URL}'
+        }
+        fixed {
+            emailext to: 'equipe@formation.local',
+                     subject: "RÉPARÉ ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                     body: 'Le build est de nouveau stable.'
+        }
+    }
+}

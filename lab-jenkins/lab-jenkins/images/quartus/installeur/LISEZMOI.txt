@@ -1,0 +1,14 @@
+Fichiers à télécharger ici (site Intel, rubrique Quartus Prime Lite Edition, Linux)
+==================================================================================
+
+Choisir UNE version de Quartus Prime Lite (la même pour les deux fichiers), onglet
+« Individual Files » :
+
+  1. Quartus Prime (includes Nios II EDS) : QuartusLiteSetup-<version>-linux.run
+  2. MAX 10 FPGA device support            : max10-<version>.qdz
+
+Ne PAS télécharger Questa (pas de licence pour la formation).
+
+Taille totale : quelques Go. À lancer dès le début du jour 1, en tâche de fond.
+Ensuite : docker build -t formation/quartus images/quartus   (30 à 60 minutes)
+Vérification : docker run --rm formation/quartus quartus_sh --version

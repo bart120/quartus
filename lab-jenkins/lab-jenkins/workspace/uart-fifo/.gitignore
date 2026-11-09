@@ -1,0 +1,17 @@
+# Fichiers générés : jamais versionnés
+build/
+vunit_out/
+coverage_data/
+tb/*/sim_build*/
+tb/*/results.xml
+__pycache__/
+*.pyc
+# Quartus
+db/
+incremental_db/
+output_files/
+simulation/
+*.qpf
+*.qsf
+*.qws
+greybox_tmp/
